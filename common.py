@@ -1,4 +1,12 @@
 ### common values for client and server
 
-FILTER_PROMPT="what topic do you want?\n"
-FILTER_DEFAULT="incoming\n"
+# Messaging constants.
+PROMPT="what topic do you want?\n"
+DEFAULT_TOPIC="incoming"
+
+# Match any key.
+MATCH_ALL="*"
+MATCH_ALL_B=MATCH_ALL.encode("utf8")
+
+# Topic/Key filter delimiter
+DELIM="/"

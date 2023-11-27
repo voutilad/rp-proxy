@@ -1,31 +1,47 @@
 #!/usr/bin/env python3
+import argparse
 import asyncio
 import signal
 import sys
 
 import websockets
+import websockets.exceptions as wse
 import common
 
-async def client(uri="ws://127.0.0.1:5000/ws", filters=common.FILTER_DEFAULT):
+async def client(uri="ws://127.0.0.1:5000/ws", topic=common.DEFAULT_TOPIC,
+                 key_filter=common.MATCH_ALL):
+    """
+    Starts a simple WebSocket client to our Redpanda WS Proxy service.
+    """
     async with websockets.connect(uri) as ws:
-        # Wire up a signal handler for ctrl-c.
-        loop = asyncio.get_running_loop()
-        loop.add_signal_handler(
-            signal.SIGTERM, loop.create_task, ws.close()
-        )
-
         # Get our filter prompt and reply.
         prompt = await ws.recv()
-        if prompt != common.FILTER_PROMPT:
+        if prompt != common.PROMPT:
             print("didn't receive our filter prompt!")
             sys.exit(1)
-        await ws.send(filters)
+        print(f"connected to {uri}", file=sys.stderr)
+        await ws.send(f"{topic}{common.DELIM}{key_filter}".encode())
 
         # Start streaming.
-        async for message in ws:
-            print(message)
+        print(f"listening for messages from {topic}{common.DELIM}{key_filter}",
+              file=sys.stderr)
+        try:
+            async for message in ws:
+                print(message)
+        except wse.ConnectionClosedError:
+            print("server disconnected us", file=sys.stderr)
+        except Exception as e:
+            print(f"exception: {type(e)}", file=sys.stderr)
 
 
 if __name__ == "__main__":
-    print("starting...")
-    asyncio.run(client())
+    parser = argparse.ArgumentParser(description="Simple WebSocket client")
+    parser.add_argument("-u", "--uri", default="ws://127.0.0.1:5000/ws")
+    parser.add_argument("-t", "--topic", default=common.DEFAULT_TOPIC)
+    parser.add_argument("-k", "--key", default=common.MATCH_ALL)
+    args = parser.parse_args()
+
+    try:
+        asyncio.run(client(args.uri, topic=args.topic, key_filter=args.key))
+    except KeyboardInterrupt:
+        pass

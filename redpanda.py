@@ -5,6 +5,8 @@ import asyncio
 import logging
 import ssl
 
+import common
+
 LOG = logging.getLogger("redpanda")
 
 class Redpanda:
@@ -17,7 +19,8 @@ class Redpanda:
         self._topics = set(topics)
         self._tps = set()
         self._consumer = None
-        self._listener_map = {} # map of topic -> [listeners]
+        ## 2-level Map of "Topics" -> b"key pattern" -> [queue]
+        self._listener_map = {}
 
     async def connect(self):
         proto = "PLAINTEXT"
@@ -56,9 +59,14 @@ class Redpanda:
         except Exception as e:
             LOG.error(f"failed to cleanly stop consumer: {e}")
 
-    async def subscribe(self, topic):
+    async def subscribe(self, topic: str, key_filter=common.MATCH_ALL):
+        """
+        Subscribe to a topic with an optional key filter. Returns a queue the
+        caller can consumer from to receive messages.
+        """
         # TODO: multi-topic support?
         # TODO: check if we're already subscribed
+        # TODO: key -> partition_id logic
         topics = await self._consumer.topics()
         if topic in topics:
             # Waste of effort, but just brute force update every time for now.
@@ -68,35 +76,61 @@ class Redpanda:
             self._consumer.assign(self._tps)
 
             # Update our subscriber map.
-            q = asyncio.Queue(10)
-            queues = self._listener_map.get(topic, [])
+            pattern_map = self._listener_map.get(topic, {})
+            key_filter_b = key_filter.encode("utf8") # Pre-encode.
+
+            queues = pattern_map.get(key_filter_b, [])
+            q = asyncio.Queue(10) # TODO: 10 was chosen via dice roll.
             queues.append(q)
-            self._listener_map[topic] = queues
+            pattern_map[key_filter_b] = queues
+            self._listener_map[topic] = pattern_map
+
             return q
         else:
             # TODO
             raise RuntimeError(f"Uhh not a good topic? topic={topic}, topics={topics}")
 
 
-    def unsubscribe(self, topic, queue):
-        # TODO: multi-topic support
+    def unsubscribe(self, topic, key_filter, queue):
+        """
+        Remove subscription to a topic/key_filter.
+        """
         if topic in self._listener_map:
-            self._listener_map[topic].remove(queue)
+            if key_filter in self._listener_map[topic]:
+                self._listener_map[topic][key_filter].remove(queue)
 
     async def poll(self):
         """
         Constantly polls for data. If nobody is subscribed, it's discarded.
+
+        This is really where fine tuning of the data model and algorithm would
+        help as latency will increase as the number of listeners increases.
         """
         try:
             while True:
                 batch = await self._consumer.getmany(timeout_ms=50)
-                # todo: spawn subtask to process batch?
+                # TODO: Spawn subtask to process batch? This is mainly CPU bound.
                 if len(batch) > 0:
                     LOG.info(f"got batch of {len(batch.items())} records")
+
+                # We get batches of: (TopicPartition, [Message])
                 for tp, messages in batch.items():
-                    qs = self._listener_map.get(tp.topic, [])
+                    key_patterns = self._listener_map.get(tp.topic, {})
+                    if not key_patterns:
+                        # No listeners? Drop the message fast.
+                        continue
+
+                    # Fire off our messages to our listeners.
                     for msg in messages:
-                        for q in qs:
-                            q.put_nowait((msg.offset, msg.key, msg.value))
+                        for p in key_patterns.keys():
+                            if p == common.MATCH_ALL_B or p == msg.key:
+                                for q in key_patterns[p]:
+                                    q.put_nowait((msg.offset, msg.key, msg.value))
+
         except ConsumerStoppedError:
+            # Happens if we're interrupted/asked to shut down.
             LOG.info("stopping poll task")
+
+        except Exception as e:
+            # All other runtime chaos.
+            LOG.error(f"unhandled exception: {e}")
