@@ -3,9 +3,11 @@ from os import environ
 
 from quart import Quart, websocket
 from redpanda import Redpanda
+import common
 
 from logging.config import dictConfig
 import asyncio
+
 
 RP_USER=environ.get("REDPANDA_USER", None)
 RP_PASS=environ.get("REDPANDA_PASS", None)
@@ -34,7 +36,8 @@ async def startup():
 async def shutdown():
     app.logger.info("Disconnecting from Redpanda")
     await REDPANDA.disconnect()
-    TASK.join()
+    if TASK:
+        TASK.join()
 
 @app.route("/")
 async def index():
@@ -53,9 +56,11 @@ async def index():
 async def handle_connection():
     q = None
     try:
-        await websocket.send("what topic do you want?")
+        app.logger.info("handling client")
+        await websocket.send(common.FILTER_PROMPT)
+        app.logger.info("waiting on client to tell me its desired filters")
         topic = (await websocket.receive()).strip()
-        app.logger.info("subscribing to topic ${topic}")
+        app.logger.info(f"subscribing to topic ${topic}")
         q = await REDPANDA.subscribe(topic)
         while True:
             value = await q.get()
@@ -66,8 +71,11 @@ async def handle_connection():
         if q:
             REDPANDA.unsubscribe(topic, q)
 
+
 if __name__ == "__main__":
-    # Use Hypercorn's native formatting.
+    ###
+    # Use Hypercorn's native formatting so things look pretty in dev mode.
+    ###
     format = "%(asctime)s [%(process)d] [%(levelname)s] %(message)s"
     datefmt = "[%Y-%m-%d %H:%M:%S %z]"
     dictConfig({
@@ -76,14 +84,16 @@ if __name__ == "__main__":
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
-                "level": "INFO",
+                "level": "DEBUG",
                 "stream": "ext://sys.stdout",
                 "formatter": "simple",
             },
         },
         "loggers": {
-            "quart.app": { "level": "INFO", "handlers": ["console"]},
+            "app": { "level": "DEBUG", "handlers": ["console"]},
             "redpanda": { "level": "INFO", "handlers": ["console"] },
         },
     })
+
+    ### Fire up the engines.
     app.run()

@@ -99,4 +99,4 @@ class Redpanda:
                         for q in qs:
                             q.put_nowait((msg.offset, msg.key, msg.value))
         except ConsumerStoppedError:
-            print("stopping poll task")
+            LOG.info("stopping poll task")
