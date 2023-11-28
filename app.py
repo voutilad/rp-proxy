@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 from os import environ
 
 from quart import Quart, websocket
@@ -9,52 +10,41 @@ from logging.config import dictConfig
 import asyncio
 
 
-RP_USER=environ.get("REDPANDA_USER", None)
-RP_PASS=environ.get("REDPANDA_PASS", None)
-RP_URL=environ.get("REDPANDA_BROKERS", None)
-RP_MECHANISM=environ.get("REDPANDA_MECHANISM", None)
-RP_TLS=True if environ.get("REDPANDA_TLS", False) else False
-
-REDPANDA = Redpanda(
-    RP_URL,
-    username=RP_USER,
-    password=RP_PASS,
-    mechanism=RP_MECHANISM,
-    tls=RP_TLS,
-)
+## Globals
+REDPANDA = None
 TASK = None
+APP = Quart(__name__)
 
-app = Quart(__name__)
 
-@app.before_serving
+@APP.before_serving
 async def startup():
-    app.logger.info(f"connecting to Redpanda @ {RP_URL}")
+    APP.logger.info(f"connecting to Redpanda @ {REDPANDA.brokers}")
     await REDPANDA.connect()
     TASK = asyncio.ensure_future(REDPANDA.poll())
 
 
-@app.after_serving
+@APP.after_serving
 async def shutdown():
-    app.logger.info("disconnecting from Redpanda")
+    APP.logger.info("disconnecting from Redpanda")
     await REDPANDA.disconnect()
     if TASK:
         TASK.join()
 
 
-@app.websocket("/ws")
+@APP.websocket("/ws")
 async def handle_connection():
     q = None
     client_ip = websocket.remote_addr
 
     try:
-        app.logger.info(f"connection from {client_ip}")
+        APP.logger.info(f"connection from {client_ip}")
         await websocket.send(common.PROMPT)
 
         subscription = (await websocket.receive()).decode("utf8").strip()
         if common.DELIM in subscription:
             parts = subscription.split(common.DELIM)
             if len(parts) > 2:
-                app.logger.warn("invalid subscription requested")
+                APP.logger.warn("invalid subscription requested")
                 await websocket.send("bad subscription")
                 return
             (topic, key_filter) = parts
@@ -62,7 +52,7 @@ async def handle_connection():
             topic = subscription
             key_filter = None
 
-        app.logger.info(
+        APP.logger.info(
             f"{client_ip} subscribing to {topic}{common.DELIM}{key_filter}"
         )
         q = await REDPANDA.subscribe(topic, key_filter=key_filter)
@@ -75,12 +65,29 @@ async def handle_connection():
             await websocket.send(str(value))
     except asyncio.CancelledError:
         # Handle disconnects cleanly.
-        app.logger.info(f"{client_ip} disconnected")
+        APP.logger.info(f"{client_ip} disconnected")
         if q:
             REDPANDA.unsubscribe(topic, key_filter, q)
 
 
 if __name__ == "__main__":
+    ### Parse our arguments.
+    parser = argparse.ArgumentParser(description="Simple Redpanda WS proxy")
+    parser.add_argument("-b", "--brokers", default="127.0.0.1:9092")
+    parser.add_argument("-u", "--user", default=None)
+    parser.add_argument("-p", "--password", default=None)
+    parser.add_argument("-m", "--sasl-mechanism", default=None)
+    parser.add_argument("-t", "--enable-tls", default=False,
+                        action=argparse.BooleanOptionalAction)
+    args = parser.parse_args()
+    REDPANDA = Redpanda(
+        args.brokers,
+        username=args.user,
+        password=args.password,
+        mechanism=args.sasl_mechanism,
+        tls=args.enable_tls,
+    )
+
     ###
     # Use Hypercorn's native formatting so things look pretty in dev mode.
     ###
@@ -103,5 +110,5 @@ if __name__ == "__main__":
         },
     })
 
-    ### Fire up the engines.
-    app.run()
+    ### Fire up the engines. Make rocket go now.
+    APP.run()
