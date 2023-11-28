@@ -1,7 +1,7 @@
 ### common values for client and server
 
 # Messaging constants.
-PROMPT="what topic do you want?\n"
+PROMPT="what topic/key do you want?\n"
 DEFAULT_TOPIC="incoming"
 
 # Match any key.

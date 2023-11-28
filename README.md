@@ -45,6 +45,23 @@ stream concepts with the same Redpanda cluster.
 3. Stay at the latest offset/head of the stream. Don't care about
    messages prior to a data consumer "susbcribing".
 
+In terms of a protocol:
+
+a. A client connects to the app/server and performs the standard
+   websocket handshake/upgrade.
+
+b. Server prompts the client for a filter. In practice, it sends a
+   Text frame just asking `what topic/key do you want?\n`. (Why a text
+   frame? I was testing with
+   [websocat](https://github.com/vi/websocat) initially.)
+
+c. Client responds with a utf-8 encoded binary reply with the pattern
+   `<topic>/<key>` with the special key of `*` meaning "match all
+   keys" in the topic.
+
+d. Server proceeds to send messages that match the subscription as
+   they arrive in the form of two Binary frames: the first being the
+   key and the second being the message value.
 
 ## Running
 
@@ -118,7 +135,9 @@ listening for messages from incoming/dave
 ## Left to the Reader
 
 1. This prototype uses websockets, but doesn't handle TLS on the
-   consumer side. Easy to add with `quart` but this was done quickly.
+   consumer side. Easy to add with
+   [quart](https://quart.palletsprojects.com/) but this was done
+   quickly.
 
 2. The data types and algorithms for handling subscriptions is most
    likely suboptimal. A 2-layer map structure is probably not great!
