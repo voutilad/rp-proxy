@@ -27,8 +27,10 @@ async def client(uri="ws://127.0.0.1:5000/ws", topic=common.DEFAULT_TOPIC,
               file=sys.stderr)
         try:
             while True:
+                # We expect the server to send a key followed by a value.
                 key = await ws.recv()
                 value = await ws.recv()
+                # Here, we'd *do* something with the data. But for now, print.
                 print((key, value))
         except wse.ConnectionClosedError:
             print("server disconnected us", file=sys.stderr)
