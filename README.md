@@ -138,3 +138,7 @@ listening for messages from incoming/dave
    individual queues for relay to the data consumers is an extra step
    and data copy that's definitely going to add latency at scale. This
    could definitely be reworked.
+
+7. Websockets consumer extra CPU time due to the overhead of frame
+   parsing. Switching to a custom protocol atop TCP or UDP may lower
+   latency further.
