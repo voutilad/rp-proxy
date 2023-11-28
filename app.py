@@ -61,8 +61,10 @@ async def handle_connection():
         # TODO: could cut out the middle man and have the Redpanda poll() routine
         #       directly write the data to this connection.
         while True:
-            value = await q.get()
-            await websocket.send(str(value))
+            (offset, key, value) = await q.get()
+            # TODO: relies on websocket framing for now
+            await websocket.send(key)
+            await websocket.send(value)
     except asyncio.CancelledError:
         # Handle disconnects cleanly.
         APP.logger.info(f"{client_ip} disconnected")

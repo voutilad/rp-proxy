@@ -107,12 +107,12 @@ listening for messages from incoming/*
 ```
 
 In either case, you should see data arrive on the client side showing
-the format of `(<offset>, <key>, <value>)` on the console:
+the format of `(<key>, <value>)` on the console:
 
 ```
 connected to ws://127.0.0.1:5000/ws
 listening for messages from incoming/dave
-(15, b'dave', b'Hey, Dave, did you get this?')
+(b'dave', b'Hey, Dave, did you get this?')
 ```
 
 ## Left to the Reader
@@ -142,3 +142,9 @@ listening for messages from incoming/dave
 7. Websockets consumer extra CPU time due to the overhead of frame
    parsing. Switching to a custom protocol atop TCP or UDP may lower
    latency further.
+
+8. Relies on Websocket framing and sends key as one message followed
+   by the value as another as Binary frames. Since the websocket
+   framing contains the length, this gives us a super simple
+   approximation of run-length encoding at the expense of 2 Binary
+   frames per message. (This is an easy area to improve upon.)

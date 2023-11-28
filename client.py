@@ -26,12 +26,12 @@ async def client(uri="ws://127.0.0.1:5000/ws", topic=common.DEFAULT_TOPIC,
         print(f"listening for messages from {topic}{common.DELIM}{key_filter}",
               file=sys.stderr)
         try:
-            async for message in ws:
-                print(message)
+            while True:
+                key = await ws.recv()
+                value = await ws.recv()
+                print((key, value))
         except wse.ConnectionClosedError:
             print("server disconnected us", file=sys.stderr)
-        except Exception as e:
-            print(f"exception: {type(e)}", file=sys.stderr)
 
 
 if __name__ == "__main__":
